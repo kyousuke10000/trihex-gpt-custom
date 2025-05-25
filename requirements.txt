@@ -3,3 +3,5 @@ fpdf
 pandas
 openpyxl
 ephem
+pyswisseph
+pytz

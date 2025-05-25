@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ soul_name }}（{{ soul_reading }}）｜魂診断結果</title>
+    <style>
+        body {
+            font-family: 'Noto Sans JP', sans-serif;
+            margin: 40px;
+            line-height: 1.6;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        h2 {
+            font-size: 22px;
+            margin-top: 30px;
+        }
+        .section {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        ul {
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>{{ soul_name }}（{{ soul_reading }}）｜魂No.{{ soul_no }}</h1>
+
+    <div class="section">
+        <h2>三軸カテゴリ</h2>
+        <p>🌀 先天カテゴリ：{{ spiral }}（{{ eto_expr }}）</p>
+        <p>🪞 後天カテゴリ：{{ lineage }}（{{ present_kanji }}）</p>
+        <p>📘 顕現叡智：{{ wisdom }}（{{ ideal_kanji }}）</p>
+    </div>
+
+    <div class="section">
+        <h2>魂語り</h2>
+        {% for line in soul_story_lines %}
+        <p>{{ line }}</p>
+        {% endfor %}
+    </div>
+
+    <div class="section">
+        <h2>要約</h2>
+        <p>{{ summary }}</p>
+    </div>
+
+    <div class="section">
+        <h2>5つの鍵（あなたの魂が大切にする価値観）</h2>
+        <ul>
+            {% for key in keys %}
+            <li>{{ key }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <div class="section">
+        <h2>魂からの問いかけ</h2>
+        <p>❓ {{ question }}</p>
+    </div>
+
+    <div class="section">
+        <h2>螺旋語り</h2>
+        <p>{{ spiral_description }}</p>
+    </div>
+</body>
+</html>

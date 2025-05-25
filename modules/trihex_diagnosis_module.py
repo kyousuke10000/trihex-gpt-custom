@@ -1,86 +1,148 @@
-from datetime import date
-import ephem
-from modules.life_path_utils import calculate_life_path
-import json
+# -*- coding: utf-8 -*-
+"""
+TriHex φ ― 自己完結型 診断モジュール
+--------------------------------------
+■ 先天スパイラル決定ロジック
+A. 干支 → 五行・陰陽 → 基本螺旋       : +100pt
+B. 太陽 / 月 / ASC の 4エレメント換算
+      └  Sun +5  /  Moon +3  /  ASC +3
+C. 数秘マスターナンバー (11/22/33)      : 識 +30pt
+D. Sun‒Moon‒ASC すべて同一エレメント    : 識 +15pt
+E. 最終得点の最大螺旋を採用 (同点時は A を優先)
 
-# 干支分類辞書の読み込み
-def load_eto_dict():
-    with open("data/eto_classification_dict.json", encoding="utf-8") as f:
-        return json.load(f)
+＊占星計算は ephem が使えない環境でも動く
+  “ダミー黄経” 方式（UTCタイムスタンプのハッシュ値）で
+  エレメントを一貫して決定する。
+"""
 
-# 魂データの読み込み
-def load_soulbook():
-    with open("data/soulbook_master_v1.json", encoding="utf-8") as f:
-        return json.load(f)
+from datetime import datetime as _dt
+from typing import Dict, Tuple
 
-# 干支マッピング（暦補正）
-eto_year_dict = {
-    year: eto for year, eto in zip(range(1900, 2041), [
-        "庚子", "辛丑", "壬寅", "癸卯", "甲辰", "乙巳", "丙午", "丁未", "戊申", "己酉",
-        "庚戌", "辛亥", "壬子", "癸丑", "甲寅", "乙卯", "丙辰", "丁巳", "戊午", "己未",
-        "庚申", "辛酉", "壬戌", "癸亥", "甲子", "乙丑", "丙寅", "丁卯", "戊辰", "己巳",
-        "庚午", "辛未", "壬申", "癸酉", "甲戌", "乙亥", "丙子", "丁丑", "戊寅", "己卯",
-        "庚辰", "辛巳", "壬午", "癸未", "甲申", "乙酉", "丙戌", "丁亥", "戊子", "己丑",
-        "庚寅", "辛卯", "壬辰", "癸巳", "甲午", "乙未", "丙申", "丁酉", "戊戌", "己亥",
-        "庚子", "辛丑", "壬寅", "癸卯", "甲辰", "乙巳", "丙午", "丁未", "戊申", "己酉",
-        "庚戌", "辛亥", "壬子", "癸丑", "甲寅", "乙卯", "丙辰", "丁巳", "戊午", "己未",
-        "庚申", "辛酉", "壬戌", "癸亥", "甲子", "乙丑", "丙寅", "丁卯", "戊辰", "己巳",
-        "庚午", "辛未", "壬申", "癸酉", "甲戌", "乙亥", "丙子", "丁丑", "戊寅", "己卯",
-        "庚辰"
-    ])
+# ─────────────────────────────────────
+# 1) 干支テーブル（十干＋十二支 60 通り）
+# 　 element : 木 / 火 / 土 / 金 / 水
+# 　 yin_yang: 陽 / 陰
+# 　 spiral  : 地 / 水 / 火 / 風 / 空 / 識
+# サイズ削減のため十干・十二支から動的生成
+_STEMS = "甲乙丙丁戊己庚辛壬癸"
+_BRANCH = "子丑寅卯辰巳午未申酉戌亥"
+ELEMENT_MAP = {
+    "木":"風",
+    "火":"火",
+    "土":"地",
+    "金":"空",
+    "水":"水",
 }
+_YIN_YANG_STEM = ["陽","陽","陽","陽","陽","陰","陰","陰","陰","陰"]
+_ELEMENT_STEM   = ["木","木","火","火","土","土","金","金","水","水"]
 
-def get_eto_from_date(year: int, month: int, day: int) -> str:
-    target_date = date(year, month, day)
-    spring_start = date(year, 2, 4)
-    eto_year = year if target_date >= spring_start else year - 1
-    return eto_year_dict.get(eto_year, "不明")
+def _eto_table()->Dict[str,Tuple[str,str,str]]:
+    tbl={}
+    for i in range(60):
+        stem=_STEMS[i%10]
+        branch=_BRANCH[i%12]
+        elem = _ELEMENT_STEM[i%10]
+        yin  = _YIN_YANG_STEM[i%10]
+        spiral = ELEMENT_MAP[elem]
+        tbl[f"{stem}{branch}"]=(elem,yin,spiral)
+    return tbl
 
-# 螺旋語りを取得
-def load_spiral_definitions():
-    with open("data/spiral_definitions.md", encoding="utf-8") as f:
-        text = f.read()
-    blocks = text.split("## ")
-    spiral_map = {}
-    for block in blocks[1:]:
-        title, *body = block.splitlines()
-        spiral_map[title.strip()] = "\n".join(body).strip()
-    return spiral_map
+_ETO_INFO = _eto_table()
 
-def trihex_diagnose(name: str, year: int, month: int, day: int, current: str, ideal: str) -> dict:
-    eto = get_eto_from_date(year, month, day)
-    eto_dict = load_eto_dict()
-    soulbook = load_soulbook()
-    spiral_defs = load_spiral_definitions()
+def _eto_from_date(date)->Tuple[str,str,str,str]:
+    """与えられた date → (干支, 五行, 陰陽, 螺旋)"""
+    base_year=1984  # 甲子
+    idx=(date.year-base_year)%60
+    key=list(_ETO_INFO.keys())[idx]
+    elem,yin,spiral=_ETO_INFO[key]
+    return key,elem,yin,spiral
 
-    eto_info = eto_dict.get(eto, {})
-    five_element = eto_info.get("五行", "未知")
-    yin_yang = eto_info.get("陰陽", "未知")
-    senten = eto_info.get("先天カテゴリ", "仮カテゴリ")
+# ─────────────────────────────────────
+# 2) 数秘ライフパス
+def _life_path_number(date:_dt)->int:
+    total=sum(int(d) for d in date.strftime("%Y%m%d"))
+    while total>9 and total not in (11,22,33):
+        total=sum(int(d) for d in str(total))
+    return total
 
-    life_path = calculate_life_path(year, month, day)
+# ─────────────────────────────────────
+# 3) 占星エレメント (ダミー算法：ライブラリ不要)
+_ZODIAC_ELEM=("火","地","風","水")*3  # 12 星座 → 30° 区切り
+def _deg_to_elem(deg:float)->str:
+    return _ZODIAC_ELEM[int(deg//30)%12]
 
-    # 仮ロジック（後天・叡智カテゴリ）
-    kouten = "智略系" if current in ["義", "知", "理"] else "仮カテゴリ"
-    wisdom = "螺律" if ideal in ["解", "律", "理"] else "仮カテゴリ"
+def _fake_longitude(dt_utc:_dt,seed:int)->float:
+    """UTC タイムスタンプで 0-359.99° を擬似生成"""
+    ts=int(dt_utc.timestamp())+seed
+    return (ts%36000)/100.0
 
-    soul_no = str(((life_path * len(senten)) + len(kouten) + len(wisdom)) % 216 + 1)
-    soul_data = soulbook.get(soul_no, {})
+def _resolve_elements(birth_dt_local:_dt)->Tuple[str,str,str]:
+    utc=_dt.utcfromtimestamp(birth_dt_local.timestamp())
+    sun_long  = _fake_longitude(utc,0)
+    moon_long = _fake_longitude(utc,111)
+    asc_long  = _fake_longitude(utc,222)
+    return (_deg_to_elem(sun_long),
+            _deg_to_elem(moon_long),
+            _deg_to_elem(asc_long))
 
-    spiral_text = spiral_defs.get(senten, "（螺旋語りが未設定です）")
+# API 用互換名
+resolve_astro_elements=_resolve_elements
+resolve_elements      =_resolve_elements
+
+# ─────────────────────────────────────
+# 4) スコアリング
+_BASE_PT      = 100          # 干支
+_SUN_PT       = 5
+_MOON_PT      = 3
+_ASC_PT       = 3
+_MASTER_PT    = 30
+_TRIPLE_PT    = 15
+
+def diagnose(
+    birth_date:str,      # "YYYY-MM-DD"
+    birth_time:str,      # "HH:MM"
+    present_kanji:str="",
+    ideal_kanji:str=""
+)->Dict:
+    dt=_dt.strptime(f"{birth_date} {birth_time}","%Y-%m-%d %H:%M")
+    # A 干支
+    eto_key,elem,yin,spiral=_eto_from_date(dt.date())
+    scores={s:0 for s in ["地","水","火","風","空","識"]}
+    scores[spiral]+=_BASE_PT
+
+    # B 占星
+    sun,moon,asc=_resolve_elements(dt)
+    for e,pt in [(sun,_SUN_PT),(moon,_MOON_PT),(asc,_ASC_PT)]:
+        scores[ELEMENT_MAP[e]]+=pt
+    if sun==moon==asc:
+        scores["識"]+=_TRIPLE_PT
+
+    # C 数秘
+    lp=_life_path_number(dt)
+    if lp in (11,22,33):
+        scores["識"]+=_MASTER_PT
+
+    # D 最終決定
+    max_pt=max(scores.values())
+    final=[k for k,v in scores.items() if v==max_pt]
+    final_spiral=spiral if spiral in final else final[0]
 
     return {
-        "干支": eto,
-        "五行": five_element,
-        "陰陽": yin_yang,
-        "ライフパスナンバー": life_path,
-        "先天カテゴリ": senten,
-        "後天カテゴリ": kouten,
-        "叡智カテゴリ": wisdom,
-        "魂No": int(soul_no),
-        **soul_data,
-        "名前": name,
-        "今": current,
-        "理想": ideal,
-        "spiral_description": spiral_text
+        "eto": eto_key,
+        "element": elem,
+        "yin_yang": yin,
+        "life_path": lp,
+        "sun_elem": sun,
+        "moon_elem": moon,
+        "asc_elem": asc,
+        "scores": scores,
+        "spiral": final_spiral,
+        # ↓ 後天系統・顕現叡智は質問終了後に決定
+        "lineage": None,
+        "wisdom": None,
+        "present_kanji": present_kanji,
+        "ideal_kanji": ideal_kanji,
     }
+
+# 旧関数名互換
+trihex_diagnose = diagnose
