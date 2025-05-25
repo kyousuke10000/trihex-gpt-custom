@@ -1,0 +1,15 @@
+# manus.yaml  – TriHexφ 魂診断 Worker
+services:
+  - name: trihex-soul-worker     # 好きな表示名
+    type: web
+    runtime: python
+    port: 5000                   # Flask のデフォルト
+    buildCommand: |
+      apt-get update && \
+      apt-get install -y libcairo2 libpango-1.0-0 libffi-dev shared-mime-info fonts-noto-cjk && \
+      pip install -r requirements.txt
+    startCommand: python app.py  # サーバーのエントリポイント
+    envVars:
+      - key: SLACK_BOT_TOKEN
+      - key: GOOGLE_APPLICATION_CREDENTIALS_JSON
+      - key: SPREADSHEET_ID
