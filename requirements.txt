@@ -5,3 +5,6 @@ openpyxl
 ephem
 pyswisseph
 pytz
+flask
+slack_sdk
+weasyprint
